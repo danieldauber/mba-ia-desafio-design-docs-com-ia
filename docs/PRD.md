@@ -1,6 +1,6 @@
 ### PRD: Order Management System — Sistema de Webhooks de Notificação de Pedidos
 
-Versão: 1.0
+Versão: 1.1
 Data: 2026-06-24
 Responsável: Marcos (Product Manager)
 
@@ -71,70 +71,76 @@ Fora de escopo
 
 ### Requisitos funcionais
 
-#### RF-001 Gerenciamento de configurações de webhook
-Operadores e clientes devem poder cadastrar, editar, listar e remover configurações de endpoint de webhook para receber notificações de mudança de status de pedidos.
+#### RF-001 Cadastro de endpoint de webhook
+Operadores devem poder registrar um novo endpoint de webhook para receber notificações de mudança de status de pedidos de um determinado cliente.
 
 **Fluxo principal**
 - Operador envia `POST /api/v1/webhooks` com `customerId`, `url` (HTTPS) e lista de `events` (status de pedido de interesse)
 - Sistema valida schema via Zod: URL obrigatoriamente HTTPS, lista de eventos não vazia
-- Sistema gera secret HMAC via `crypto.randomBytes(32)` com prefixo `whsec_` e armazena na tabela `webhooks`
-- Resposta `201 Created` retorna configuração completa incluindo a secret (única vez que a secret é retornada)
-- Operador consulta lista com `GET /api/v1/webhooks?customerId=:id` — resposta nunca inclui o campo `secret`
-- Operador edita com `PATCH /api/v1/webhooks/:id` (URL, eventos, estado ativo/inativo)
-- Operador remove com `DELETE /api/v1/webhooks/:id`
+- Sistema gera secret HMAC via `crypto.randomBytes(32).toString('hex')` com prefixo `whsec_` e armazena na tabela `webhooks`
+- Resposta `201 Created` retorna configuração completa incluindo a secret (única vez que a secret é retornada em texto claro)
 
 **Fluxos alternativos e exceções**
 - Se o cliente perde a secret, não é possível recuperá-la via `GET` — deve usar o endpoint de rotação para gerar nova
-- Webhook inativo não recebe eventos: `publishWebhookEvent` filtra apenas webhooks com `active = true` na busca dentro da transação
 
 **Erros previstos**
 - `WEBHOOK_INVALID_URL` (400): URL não é HTTPS ou está malformada
 - `WEBHOOK_EVENTS_REQUIRED` (400): lista de eventos vazia ou ausente
 - `WEBHOOK_DUPLICATE_URL` (409): URL já cadastrada para o mesmo `customerId`
-- `WEBHOOK_NOT_FOUND` (404): ID de webhook inexistente em operações de edição ou remoção
 - `401 Unauthorized`: token ausente ou inválido
 
 **Prioridade:** alta
 
 ---
 
-#### RF-002 Entrega de eventos de mudança de status
-Quando um pedido muda de status, a plataforma deve inserir um evento na fila e despachá-lo para todos os endpoints do cliente que têm aquele status na lista de eventos configurados.
+#### RF-002 Edição de endpoint de webhook
+Operadores devem poder atualizar a URL, a lista de eventos ou o estado ativo/inativo de um endpoint de webhook existente.
 
 **Fluxo principal**
-- `OrderService.changeStatus` executa transação Prisma
-- Dentro da transação, após atualizar status e estoque: `publishWebhookEvent(tx, order, fromStatus, toStatus)` busca webhooks ativos do customer com `toStatus` na lista de eventos
-- Para cada webhook encontrado: insere linha em `webhook_outbox` com payload snapshot, `webhook_id`, `status = PENDING`, `attempt_count = 0`
-- Transação commita; worker (processo separado, polling a cada 2s) lê eventos `PENDING` ordenados por `created_at ASC`
-- Worker assina payload com HMAC-SHA256, executa `POST` para URL do cliente com timeout 10s e headers obrigatórios
-- Resposta `2xx`: marca evento como `DELIVERED`, registra em `webhook_deliveries`
+- Operador envia `PATCH /api/v1/webhooks/:id` com um ou mais campos: `url`, `events`, `active`
+- Sistema valida apenas os campos enviados via Zod
+- Resposta `200 OK` retorna a configuração atualizada — sem o campo `secret`
 
 **Fluxos alternativos e exceções**
-- Se nenhum webhook do customer tem o `toStatus` inscrito, nenhuma linha é inserida na outbox (filtro na inserção, irreversível)
-- Resposta não-`2xx` ou timeout: incrementa `attempt_count`, agenda `retry_at` conforme backoff, mantém status `PENDING`
-- Após 5 falhas: evento movido para `webhook_dead_letter` com payload, motivo e timestamp
+- Webhook inativo (`active = false`) não recebe eventos: `publishWebhookEvent` filtra apenas webhooks com `active = true`
 
 **Erros previstos**
-- `WEBHOOK_PAYLOAD_TOO_LARGE`: payload do evento excede 64KB; evento vai direto para DLQ sem tentativa de envio
-- `WEBHOOK_DELIVERY_TIMEOUT`: cliente não responde em 10 segundos; tratado como falha e agendado para retry
+- `WEBHOOK_NOT_FOUND` (404): ID de webhook inexistente
+- `WEBHOOK_INVALID_URL` (400): URL não é HTTPS ou está malformada
+- `401 Unauthorized`: token ausente ou inválido
 
 **Prioridade:** alta
 
 ---
 
-#### RF-003 Rotação de secret HMAC por endpoint
-Clientes devem poder solicitar uma nova secret para um endpoint de webhook sem interromper a entrega de eventos durante a migração.
+#### RF-003 Listagem de endpoints de webhook
+Operadores devem poder listar todos os endpoints de webhook configurados para um determinado cliente.
 
 **Fluxo principal**
-- Operador chama `POST /api/v1/webhooks/:id/rotate-secret`
-- Sistema gera nova secret via `crypto.randomBytes(32).toString('hex')` com prefixo `whsec_`
-- Secret atual é movida para `previous_secret`; nova secret é armazenada em `secret`; `previous_secret_expires_at = now + 24h`
-- Resposta retorna apenas a nova secret e `previousSecretExpiresAt`
-- Durante o grace period, o worker aceita verificação de assinatura gerada com qualquer uma das duas secrets
+- Operador envia `GET /api/v1/webhooks?customerId=:id`
+- Sistema retorna array de configurações com campos: `id`, `url`, `events`, `active`, `createdAt`, `updatedAt`
+- O campo `secret` nunca é incluído na resposta de listagem
 
 **Fluxos alternativos e exceções**
-- Após 24h, `previous_secret` é considerada inválida pelo worker (verificação inline no ciclo de despacho)
-- Se o cliente não migrar dentro de 24h, eventos assinados com a secret anterior passam a falhar na verificação do lado do cliente
+- Se não há webhooks cadastrados para o `customerId`, retorna array vazio `[]`
+
+**Erros previstos**
+- `401 Unauthorized`: token ausente ou inválido
+
+**Prioridade:** alta
+
+---
+
+#### RF-004 Remoção de endpoint de webhook
+Operadores devem poder remover permanentemente um endpoint de webhook, interrompendo o recebimento de eventos futuros.
+
+**Fluxo principal**
+- Operador envia `DELETE /api/v1/webhooks/:id`
+- Sistema remove o registro da tabela `webhooks`
+- Resposta `204 No Content`
+
+**Fluxos alternativos e exceções**
+- Eventos já inseridos na outbox antes da remoção serão despachados normalmente; a remoção não cancela tentativas em andamento
 
 **Erros previstos**
 - `WEBHOOK_NOT_FOUND` (404): ID de webhook inexistente
@@ -144,12 +150,97 @@ Clientes devem poder solicitar uma nova secret para um endpoint de webhook sem i
 
 ---
 
-#### RF-004 Histórico de entregas por endpoint
-Clientes e operadores devem poder consultar o histórico de tentativas de entrega de um endpoint de webhook para diagnóstico de falhas e verificação de recebimento.
+#### RF-005 Filtro de eventos por lista de status configurada
+Cada webhook deve receber somente os eventos de mudança de status que constam na sua lista de eventos configurados, sem que eventos fora da lista sejam inseridos na fila.
 
 **Fluxo principal**
-- Operador chama `GET /api/v1/webhooks/:id/deliveries` (com paginação opcional)
-- Sistema retorna lista de tentativas com: `event_id`, `event_type`, `status`, `http_status`, `attempt_count`, `duration_ms` e timestamps
+- Na inserção do outbox, `publishWebhookEvent` filtra os webhooks ativos do customer que têm `toStatus` na lista de `events`
+- Para cada webhook filtrado, insere linha em `webhook_outbox` com o payload snapshot
+- Webhooks que não têm `toStatus` na lista não geram nenhuma linha na outbox
+
+**Fluxos alternativos e exceções**
+- O filtro ocorre na inserção (dentro da transação), não no despacho; uma vez omitido, o evento não pode ser recuperado para esse webhook
+- Se nenhum webhook do customer tem o `toStatus` inscrito, a transação commita sem nenhuma linha de outbox
+
+**Erros previstos**
+- Nenhum erro visível ao chamador; filtro é silencioso e intencional
+
+**Prioridade:** alta
+
+---
+
+#### RF-006 Entrega atômica de eventos via Transactional Outbox
+Quando um pedido muda de status, a plataforma deve inserir o evento na fila de outbox dentro da mesma transação de banco de dados, garantindo que um commit sem evento ou um evento sem commit sejam impossíveis.
+
+**Fluxo principal**
+- `OrderService.changeStatus` executa transação Prisma (`$transaction`)
+- Dentro da mesma transação: atualiza status do pedido, ajusta estoque, chama `publishWebhookEvent(tx, order, fromStatus, toStatus)`
+- `publishWebhookEvent` insere linhas em `webhook_outbox` com `status = PENDING`, `attempt_count = 0`, payload como snapshot JSON e `event_id` UUID
+- Transação commita atomicamente; rollback do pedido elimina as linhas da outbox
+
+**Fluxos alternativos e exceções**
+- Worker (processo separado, polling a cada 2s) lê eventos `PENDING` ordenados por `created_at ASC` e os despacha via HTTP para a URL do endpoint
+- Resposta `2xx` da URL do cliente: marca evento como `DELIVERED` e registra em `webhook_deliveries`
+
+**Erros previstos**
+- `WEBHOOK_PAYLOAD_TOO_LARGE`: payload excede 64KB; evento vai direto para DLQ sem tentativa de envio
+
+**Prioridade:** alta
+
+---
+
+#### RF-007 Retry com backoff exponencial e Dead Letter Queue
+Eventos que falham na entrega devem ser reagendados automaticamente com intervalos crescentes e, após esgotar as tentativas, movidos para uma fila de mensagens mortas para reprocessamento manual.
+
+**Fluxo principal**
+- Resposta não-`2xx` ou timeout (10s) na chamada HTTP do worker: incrementa `attempt_count`, calcula `retry_at = now + intervalo` conforme backoff
+- Progressão de backoff: tentativa 1 → +1m; 2 → +5m; 3 → +30m; 4 → +2h; 5 → +12h (~14h36m total)
+- Após 5 falhas: evento movido para `webhook_dead_letter` com payload original, `failure_reason`, `last_http_status` e `failed_at`
+- Registro original na outbox é removido ou marcado `FAILED` após movimentação para DLQ
+
+**Fluxos alternativos e exceções**
+- Worker mantém `event_id` estável entre todas as tentativas de retry (UUID gerado na inserção do outbox)
+- `WEBHOOK_DELIVERY_TIMEOUT`: falha registrada como timeout; entra no ciclo de retry normalmente
+
+**Erros previstos**
+- `WEBHOOK_DELIVERY_TIMEOUT`: cliente não responde em 10 segundos
+- `WEBHOOK_DELIVERY_FAILED`: resposta HTTP `4xx` ou `5xx`
+
+**Prioridade:** alta
+
+---
+
+#### RF-008 Rotação de secret HMAC com grace period
+Operadores devem poder solicitar uma nova secret para um endpoint sem interromper a entrega de eventos durante a migração pelo cliente.
+
+**Fluxo principal**
+- Operador chama `POST /api/v1/webhooks/:id/rotate-secret`
+- Sistema gera nova secret via `crypto.randomBytes(32).toString('hex')` com prefixo `whsec_`
+- Secret atual é movida para `previous_secret`; nova secret é armazenada em `secret`; `previous_secret_expires_at = now + 24h`
+- Resposta retorna apenas a nova secret e `previousSecretExpiresAt`
+- Durante o grace period, o worker assina o payload com a secret atual e aceita verificação do cliente com qualquer uma das duas secrets
+
+**Fluxos alternativos e exceções**
+- Após 24h, `previous_secret` é considerada inválida pelo worker (verificação inline no ciclo de despacho)
+- Se o cliente não migrar dentro de 24h, eventos assinados com a secret anterior passam a falhar na verificação do lado do cliente
+
+**Critério de aceitação**
+- Durante o grace period (até `previous_secret_expires_at`), um request assinado com `previous_secret` deve ser aceito pelo cliente como válido
+
+**Erros previstos**
+- `WEBHOOK_NOT_FOUND` (404): ID de webhook inexistente
+- `401 Unauthorized`: token ausente ou inválido
+
+**Prioridade:** alta
+
+---
+
+#### RF-009 Histórico de entregas por endpoint
+Operadores devem poder consultar o histórico de tentativas de entrega de um endpoint para diagnóstico de falhas e verificação de recebimento.
+
+**Fluxo principal**
+- Operador chama `GET /api/v1/webhooks/:id/deliveries` (com paginação opcional via `limit` e `offset`)
+- Sistema retorna lista de tentativas com: `event_id`, `event_type`, `status`, `http_status`, `attempt_count`, `duration_ms`, `created_at`, `delivered_at`
 
 **Fluxos alternativos e exceções**
 - Eventos que foram para DLQ aparecem com `status = FAILED` e `attempt_count = 5` na listagem
@@ -162,8 +253,8 @@ Clientes e operadores devem poder consultar o histórico de tentativas de entreg
 
 ---
 
-#### RF-005 Reprocessamento manual de eventos na fila de mensagens mortas
-Administradores da plataforma devem poder reprocessar manualmente eventos que falharam todas as tentativas e estão na fila de mensagens mortas, com registro de auditoria da ação.
+#### RF-010 Reprocessamento manual de eventos na fila de mensagens mortas
+Administradores da plataforma devem poder reprocessar manualmente eventos que falharam todas as tentativas, com registro de auditoria da ação.
 
 **Fluxo principal**
 - Admin autenticado (role ADMIN) chama `POST /api/v1/admin/webhooks/dead-letter/:id/replay`
@@ -173,7 +264,7 @@ Administradores da plataforma devem poder reprocessar manualmente eventos que fa
 - Log estruturado registra `admin_id`, `dead_letter_id` e timestamp
 
 **Fluxos alternativos e exceções**
-- Se o webhook de destino foi desativado entre a falha original e o replay, o evento será inserido na outbox mas não terá webhooks ativos para despachar na inserção de `publishWebhookEvent` — o replay não garante entrega, apenas reprocessamento
+- Se o webhook de destino foi desativado entre a falha original e o replay, o evento será inserido na outbox mas não terá webhooks ativos para despachar na inserção — o replay não garante entrega, apenas reprocessamento
 
 **Erros previstos**
 - `WEBHOOK_DEAD_LETTER_NOT_FOUND` (404): ID não encontrado em `webhook_dead_letter`

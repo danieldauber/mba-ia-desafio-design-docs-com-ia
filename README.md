@@ -52,7 +52,7 @@ Gerado com prompt de entrevista estruturada de 12 etapas (Contexto, Problema, Ob
 
 ### Etapa 5 — TRACKER
 
-Gerado com mapeamento manual de cada decisão, requisito e restrição à sua fonte primária (timestamp na transcrição ou arquivo de código existente). 68 itens rastreados, 85% com fonte na transcrição.
+Gerado com mapeamento manual de cada decisão, requisito e restrição à sua fonte primária (timestamp na transcrição ou arquivo de código existente). 71 itens rastreados, 85% com fonte na transcrição.
 
 ### Etapa 6 — README (este arquivo)
 
@@ -252,10 +252,10 @@ Após todos os documentos estarem gerados, foi executada uma auditoria de consis
 ├── TRANSCRICAO.md                     ← fonte primária: transcrição da reunião
 ├── decisions.md                       ← classificação tripartite das decisões (pré-processamento)
 ├── docs/
-│   ├── PRD.md                         ← o quê e por quê (visão de produto, 5 RF, métricas, riscos)
+│   ├── PRD.md                         ← o quê e por quê (visão de produto, 10 RF, métricas, riscos)
 │   ├── RFC.md                         ← proposta técnica para revisão (visão de arquitetura)
 │   ├── FDD.md                         ← como construir em detalhe (fluxos, contratos, schema, integração)
-│   ├── TRACKER.md                     ← rastreabilidade de 68 itens à fonte (transcrição ou código)
+│   ├── TRACKER.md                     ← rastreabilidade de 71 itens à fonte (transcrição ou código)
 │   └── adrs/
 │       ├── mapping.md                 ← mapa do codebase (gerado pelo plugin, Phase 1)
 │       ├── ADR-001-transactional-outbox-para-despacho-de-eventos-webhook.md

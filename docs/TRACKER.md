@@ -29,12 +29,12 @@ Rastreabilidade cruzada de cada decisão, requisito e restrição aos documentos
 | T-016 | Descarte de retry com 3 tentativas | Alternativa descartada | ADR-002 §Alternativas | TRANSCRICAO [09:16] Bruno, [09:16] Diego |
 | T-017 | Progressão do backoff: 1m / 5m / 30m / 2h / 12h (~14h36m total) | Parâmetro de configuração | ADR-002 §Consequências, RFC §Resiliência, FDD §6 | TRANSCRICAO [09:17] Diego |
 | T-018 | DLQ em tabela `webhook_dead_letter` separada | Decisão arquitetural | ADR-002, RFC §Resiliência, PRD §Escopo, FDD §4 Schema | TRANSCRICAO [09:18] Diego |
-| T-019 | Endpoint `POST /admin/webhooks/dead-letter/:id/replay` | Requisito funcional | ADR-002 §Consequências, RFC, PRD RF-005, FDD Contrato 4 | TRANSCRICAO [09:18] Diego, [09:35] Diego |
-| T-020 | Replay reinseriu na outbox com `attempt_count = 0`; DLQ preservado | Regra de negócio | ADR-002 §Consequências, FDD RF-005 §Fluxo principal | TRANSCRICAO [09:18] Diego |
+| T-019 | Endpoint `POST /admin/webhooks/dead-letter/:id/replay` | Requisito funcional | ADR-002 §Consequências, RFC, PRD RF-010, FDD Contrato 4 | TRANSCRICAO [09:18] Diego, [09:35] Diego |
+| T-020 | Replay reinseriu na outbox com `attempt_count = 0`; DLQ preservado | Regra de negócio | ADR-002 §Consequências, FDD RF-010 §Fluxo principal | TRANSCRICAO [09:18] Diego |
 | T-021 | HMAC-SHA256 sobre o corpo do request | Decisão de segurança | ADR-004, RFC §Segurança, PRD §Segurança, FDD Contrato 5 | TRANSCRICAO [09:20] Sofia |
 | T-022 | Secret única por endpoint (não global) | Decisão de segurança | ADR-004, RFC §Segurança, PRD §Decisões, FDD §6 | TRANSCRICAO [09:21] Sofia |
 | T-023 | Descarte de secret global compartilhada | Alternativa descartada | ADR-004 §Alternativas, RFC §Alternativas Descartadas | TRANSCRICAO [09:21] Sofia, [09:22] Diego |
-| T-024 | Rotação de secret com grace period de 24 horas | Decisão de segurança | ADR-004 §Consequências, RFC §Segurança, PRD RF-003, FDD Contrato 6 | TRANSCRICAO [09:21] Sofia |
+| T-024 | Rotação de secret com grace period de 24 horas | Decisão de segurança | ADR-004 §Consequências, RFC §Segurança, PRD RF-008, FDD Contrato 6 | TRANSCRICAO [09:21] Sofia |
 | T-025 | TLS obrigatório — URL `https` validada via Zod | Requisito de segurança | ADR-004, PRD §Segurança, FDD §6 Erros | TRANSCRICAO [09:23] Sofia |
 | T-026 | Limite de 64KB por payload | Requisito não funcional | PRD §Segurança, FDD §6 Erros, FDD §9 Critérios | TRANSCRICAO [09:24] Diego |
 | T-027 | Semântica at-least-once com `X-Event-Id` UUID para dedup | Decisão arquitetural | ADR-005, RFC §Contrato, PRD §Decisões, FDD Contrato 5 | TRANSCRICAO [09:25] Diego |
@@ -48,11 +48,14 @@ Rastreabilidade cruzada de cada decisão, requisito e restrição aos documentos
 | T-035 | PrismaClient separado para o worker | Decisão de implementação | ADR-003 §Consequências, FDD §8 Dependências | TRANSCRICAO [09:30] Bruno |
 | T-036 | Secret retornada somente na resposta do `POST` de criação; nunca no `GET` | Regra de segurança | ADR-004 §Decisão, PRD §Segurança, FDD Contrato 1 | TRANSCRICAO [09:31] Marcos, implícito na revisão de Sofia |
 | T-037 | `customerId` passado no body (não extraído do JWT) | Regra de implementação | FDD Contrato 1, PRD RF-001 | TRANSCRICAO [09:32] Larissa |
-| T-038 | CRUD de webhooks: `POST`, `PATCH`, `DELETE`, `GET` autenticados (qualquer role) | Requisito funcional | PRD RF-001, FDD Contratos 1 e 2 | TRANSCRICAO [09:33] Bruno, [09:36] Sofia |
-| T-039 | Filtro de eventos na inserção do outbox (não no despacho) | Decisão de implementação | ADR-001 §Consequências, RFC §Limitações, FDD §4 Fluxo principal | TRANSCRICAO [09:34] Bruno, [09:34] Diego |
-| T-040 | `GET /api/v1/webhooks/:id/deliveries` para histórico de entregas | Requisito funcional | PRD RF-004, FDD Contrato 3 | TRANSCRICAO [09:34] Marcos |
-| T-041 | Role ADMIN obrigatória no endpoint de replay de DLQ | Requisito de segurança | ADR-002, PRD RF-005, FDD Contrato 4 | TRANSCRICAO [09:36] Sofia |
-| T-042 | Log de auditoria de replay com `admin_id`, `dead_letter_id`, timestamp | Requisito de auditoria | PRD RF-005, FDD §7 Logs, FDD §9 Critérios | TRANSCRICAO [09:36] Sofia |
+| T-038 | Cadastro de webhook (`POST /api/v1/webhooks`) | Requisito funcional | PRD RF-001, FDD Contrato 1 | TRANSCRICAO [09:33] Bruno, [09:36] Sofia |
+| T-038b | Edição de webhook (`PATCH /api/v1/webhooks/:id`) | Requisito funcional | PRD RF-002, FDD Contrato 2 | TRANSCRICAO [09:33] Bruno |
+| T-038c | Listagem de webhooks (`GET /api/v1/webhooks?customerId=:id`) | Requisito funcional | PRD RF-003, FDD Contrato 1 | TRANSCRICAO [09:33] Bruno |
+| T-038d | Remoção de webhook (`DELETE /api/v1/webhooks/:id`) | Requisito funcional | PRD RF-004, FDD Contrato 2 | TRANSCRICAO [09:33] Bruno |
+| T-039 | Filtro de eventos na inserção do outbox (não no despacho) | Decisão de implementação | ADR-001 §Consequências, RFC §Limitações, PRD RF-005, FDD §4 Fluxo principal | TRANSCRICAO [09:34] Bruno, [09:34] Diego |
+| T-040 | `GET /api/v1/webhooks/:id/deliveries` para histórico de entregas | Requisito funcional | PRD RF-009, FDD Contrato 3 | TRANSCRICAO [09:34] Marcos |
+| T-041 | Role ADMIN obrigatória no endpoint de replay de DLQ | Requisito de segurança | ADR-002, PRD RF-010, FDD Contrato 4 | TRANSCRICAO [09:36] Sofia |
+| T-042 | Log de auditoria de replay com `admin_id`, `dead_letter_id`, timestamp | Requisito de auditoria | PRD RF-010, FDD §7 Logs, FDD §9 Critérios | TRANSCRICAO [09:36] Sofia |
 | T-043 | Reuso de `requireRole` existente para o endpoint de replay | Padrão de implementação | PRD §Arquitetura, FDD §8 Integração | TRANSCRICAO [09:36] Larissa |
 | T-044 | Notificação por email em falhas consecutivas (adiado) | Decisão adiada | RFC §Questões em Aberto §4, PRD §Fora de escopo | TRANSCRICAO [09:37] Larissa |
 | T-045 | Rate limiting de envio por cliente (observar, adiado) | Decisão adiada | RFC §Questões em Aberto §2, PRD §Fora de escopo | TRANSCRICAO [09:39] Diego, [09:39] Larissa |
@@ -70,7 +73,7 @@ Rastreabilidade cruzada de cada decisão, requisito e restrição aos documentos
 | T-057 | Payload armazenado como snapshot na inserção do outbox | Decisão arquitetural | ADR-001 §Decisão, RFC §Visão geral, FDD §4 Fluxo principal | TRANSCRICAO [09:52] Larissa, [09:52] Diego |
 | T-058 | Descarte de renderizar payload no momento do envio | Alternativa descartada | ADR-001 §Alternativas | TRANSCRICAO [09:52] Larissa |
 | T-059 | `AppError` base para todos os erros do módulo webhooks | Padrão de implementação | FDD §6 Erros, PRD §Segurança | CODIGO src/shared/errors/app-error.ts |
-| T-060 | `requireRole('ADMIN')` reusado sem modificação no endpoint de replay | Padrão de implementação | FDD §8 Integração, PRD RF-005 | CODIGO src/middlewares/auth.middleware.ts |
+| T-060 | `requireRole('ADMIN')` reusado sem modificação no endpoint de replay | Padrão de implementação | FDD §8 Integração, PRD RF-010 | CODIGO src/middlewares/auth.middleware.ts |
 | T-061 | `errorMiddleware` trata `AppError` com prefixo `WEBHOOK_` automaticamente | Padrão de implementação | FDD §8 Integração, FDD §6 Erros | CODIGO src/middlewares/error.middleware.ts |
 | T-062 | `createPrismaClient()` reutilizada pelo worker para instanciar PrismaClient separado | Padrão de implementação | ADR-003 §Referências, FDD §8 Integração | CODIGO src/config/database.ts |
 | T-063 | `$transaction` Prisma em `changeStatus` como ponto de inserção do outbox | Ponto de integração | ADR-001 §Referências, FDD §8 Integração | CODIGO src/modules/orders/order.service.ts |
@@ -86,8 +89,8 @@ Rastreabilidade cruzada de cada decisão, requisito e restrição aos documentos
 
 | Categoria | Contagem |
 |---|---|
-| Total de itens rastreados | 68 |
-| Itens com Fonte = TRANSCRICAO | 58 |
+| Total de itens rastreados | 71 |
+| Itens com Fonte = TRANSCRICAO | 61 |
 | Itens com Fonte = CODIGO | 10 |
 | Decisões aplicadas rastreadas (de 24 em decisions.md) | 24 |
 | Decisões adiadas rastreadas (de 4 em decisions.md) | 4 |
